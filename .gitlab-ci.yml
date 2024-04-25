@@ -1,0 +1,109 @@
+stages:
+  - test
+  - build
+  - docker
+  - upload
+  - deploy
+
+variables:
+  DOCKER_BUILD: "true"
+  CI_PROJECT_ROOT_NAMESPACE: account
+  CI_PROJECT_NAME: react-ts-vite-template
+
+# define CICD trigger rule here
+workflow:
+  rules:
+    # Dev
+    - if: $CI_COMMIT_BRANCH == "develop"
+      variables:
+        DEPLOY_TW_DEV: "true"
+        HELM_VALUES_YAML: $CI_PROJECT_DIR/k8s/values-tw-dev.yaml
+        NPM_BUILD_STAGE: "dev"
+    # Regression
+    - if: $CI_COMMIT_TAG =~ /^v{1}\d{1,2}\.\d{1,2}\.\d{1,2}\.\d{1,3}$/
+      variables:
+        DEPLOY_TW_QA: "true"
+        HELM_VALUES_YAML: $CI_PROJECT_DIR/k8s/values-tw-qa.yaml
+        NPM_BUILD_STAGE: "regression"
+    # TW PA
+    - if: $CI_COMMIT_BRANCH =~ /^release\/v(\d+\.)?(\d+\.)?(\d+)/
+      variables:
+        DEPLOY_TW_PA: "true"
+        CONFIGMAP_PATH: ecs/tw-pa.config.yaml
+        NPM_BUILD_STAGE: "release"
+    # TW PROD
+    - if: $CI_COMMIT_TAG =~ /^v(\d+\.)?(\d+\.)?(\d+)(-hotfix)?(-\d+)?$/
+      variables:
+        DEPLOY_TW_PROD: "true"
+        CONFIGMAP_PATH: ecs/tw-prod.config.yaml
+        NPM_BUILD_STAGE: "prod"
+    # CN PROD
+    - if: $CI_COMMIT_TAG =~ /^cn-v(\d+\.)?(\d+\.)?(\d+)(-hotfix)?(-\d+)?$/
+      variables:
+        DEPLOY_CN_PROD: "true"
+        HELM_VALUES_YAML: $CI_PROJECT_DIR/k8s/values-cn-prod.yaml
+        NPM_BUILD_STAGE: "prod"
+    # EU PROD
+    - if:  $CI_COMMIT_TAG =~ /^eu-v(\d+\.)?(\d+\.)?(\d+)(-hotfix)?(-\d+)?$/
+      variables:
+        DEPLOY_EU_PROD_EKS: "true"
+        HELM_VALUES_YAML: $CI_PROJECT_DIR/k8s/values-eu-prod.yaml
+        NPM_BUILD_STAGE: "prod"
+    # Others
+    - when: always                            # Run the pipeline in other cases
+      variables:
+        DOCKER_BUILD: "false"
+
+.private_docker_login: &private_docker_login
+  - echo $PRIVATE_REG_PASSWORD_DEV | docker login --username $PRIVATE_REG_ACCOUNT_DEV $PRIVATE_REG_URL_DEV_NEW --password-stdin
+
+docker:
+  stage: docker
+  image: docker:stable-git
+  extends:
+    - .set_image_docker
+  tags:
+    - ACCOUNT-TEAM-K8S
+  before_script:
+    - *private_docker_login
+  only:
+    variables:
+      - $DOCKER_BUILD == "true"
+  dependencies:
+    - build
+  script:
+    - docker build -t $PRIVATE_REG_URL_DEV_NEW/$CI_PROJECT_ROOT_NAMESPACE/$CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA .
+    - docker push $PRIVATE_REG_URL_DEV_NEW/$CI_PROJECT_ROOT_NAMESPACE/$CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA
+    - if [ "$DEPLOY_TW_QA" == "true" ]; then
+    -   docker tag $PRIVATE_REG_URL_DEV/$CI_PROJECT_ROOT_NAMESPACE/$CI_PROJECT_NAME:$CI_COMMIT_SHORT_SHA $PRIVATE_REG_URL_DEV/$CI_PROJECT_ROOT_NAMESPACE/$CI_PROJECT_NAME:$CI_COMMIT_TAG
+    -   docker push $PRIVATE_REG_URL_DEV/$CI_PROJECT_ROOT_NAMESPACE/$CI_PROJECT_NAME:$CI_COMMIT_TAG
+    - fi;
+
+#=============== shared gitlab ci template: upload, deploy ============
+include:
+  project: 'SRE/gitlab-ci'
+  file: 'ci-templates/solution.yaml'
+  ref: master
+
+test:
+  stage: test
+  image: node:lts
+  tags:
+    - ACCOUNT-TEAM-K8S
+  before_script:
+    - npm ci
+  script:
+    - npm run test
+
+build:
+  stage: build
+  image: node:lts
+  tags:
+    - ACCOUNT-TEAM-K8S
+  before_script:
+    - npm ci
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - dist
