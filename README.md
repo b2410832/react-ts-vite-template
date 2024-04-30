@@ -29,10 +29,45 @@ Make sure to update packages to the latest version manually when needed.
 
 ## How to use
 
-### Start dev server
+### Initialize
+Remove the .git folder
+```bash
+rm -rf .git
+```
+Init a new git repository
+```bash
+git init
+```
+Install dependencies
 ```bash
 nvm use
 npm install
+```
+Remove `bin` in root directory.
+
+Cleanup `package.json` with new configurations
+```json
+{
+  "name": "your-app-name",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    ...
+  },
+  "dependencies": {
+    ...
+  },
+  "devDependencies": {
+    ...
+  },
+  "lint-staged": {
+    ...
+  },
+}
+```
+
+### Start dev server
+```bash
 npm run dev
 ```
 Dev server will start automatically at http://localhost:8080.
